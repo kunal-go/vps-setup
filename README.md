@@ -13,9 +13,10 @@ Verify Node.JS installation
 node -v
 ```
 
-Install PM2 package globally
+Install PM2 & Yarn packages globally
 ```
 npm install -g pm2
+npm install -g yarn
 ```
 
 ### 2. Setup Postgres and create database
@@ -182,6 +183,11 @@ sftp sftp_user@127.0.0.1
 
 ### 5. Setup project directory
 
+Install Unzip
+```
+sudo apt-get install zip unzip
+```
+
 Create project directory in sftp space
 ```
 cd /home/sftp_user/
@@ -215,15 +221,102 @@ mkdir your_domain
 ```
 
 
-### 6. Github Action Script
+### 6. Create SSH Private Key for Github Actions Secret
 
-Start the service with PM2
+Generate SSH Keys
 ```
-pm2 start pm2.config.js
+ssh-keygen -t rsa -b 4096 -m PEM -C "github-actions-node1"
 ```
 
-Save PM2 process for when a machine was restart, PM2 can running the same configuration
+Copy Public Key to authorized key
 ```
-pm2 save
-pm2 startup ubuntu
+cat id_rsa.pub
+
+# Copy the output to
+nano ~/.ssh/authorized_keys
+```
+
+Copy Private Key
+```
+# Copy the output
+cat ~/.ssh/id_rsa
+```
+
+### 7. Github Action Script
+```
+    
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+    name: Deploy Service to VPS
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build
+        run: yarn install && yarn build
+
+      - name: Create .env file
+        env:
+          ENV_1: ${{ secrets.ENV_1 }}
+          ENV_2: ${{ secrets.ENV_2 }}
+        run: |
+          touch .env
+          echo "NODE_ENV=production" >> .env
+          echo "PORT=<YOUR_PORT>" >> .env
+          echo "ENV_1=$ENV_1" >> .env
+          echo "ENV_2=$ENV_2" >> .env
+          echo "TZ=Asia/Kolkata" >> .env
+          cat .env
+
+      - name: Prepare zip file
+        run: |
+          cd server
+          zip -r new_deployment.zip . -x ".git/*" ".github/*" "node_modules/*" "src/*"
+          mkdir deployments
+          mv new_deployment.zip deployments/new_deployment.zip
+
+      - name: Deploy to VPS
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        env:
+          FTP_USERNAME: ${{ secrets.FTP_USERNAME }}
+        with:
+          username: ${{ secrets.FTP_USERNAME }}
+          server: ${{ secrets.FTP_HOST }}
+          port: ${{ secrets.FTP_PORT }}
+          local_path: ./deployments/*
+          remote_path: deployments/your_domain
+          sftp_only: true
+          password: ${{ secrets.FTP_PASSWORD }}
+
+      - name: Restart the server
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd /home/sftp_user/deployments/your_domain
+            unzip new_deployment.zip -d new_deployment
+            rm new_deployment.zip
+            cd ../..
+            rsync -av deployments/your_domain/new_deployment/* your_domain/
+            rm -rf deployments/your_domain/new_deployment
+            cd your_domain
+            pm2 stop your_domain
+            yarn install --production --immutable --immutable-cache --check-cache
+            yarn migration:run
+            pm2 start pm2.config.js
+            pm2 save
+            pm2 startup ubuntu
+
 ```
