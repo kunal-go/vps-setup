@@ -16,7 +16,7 @@ node -v
 Install PM2 & Yarn packages globally
 ```
 npm install -g pm2
-npm install -g yarn
+## npm install -g yarn
 ```
 
 ### 2. Setup Postgres and create database
@@ -220,6 +220,20 @@ cd deployments
 mkdir your_domain
 ```
 
+Check SFTP connection
+```
+sftp sftp_user@127.0.0.1
+cd deployments/your_domain
+mkdir test_dir
+rmdir test_dir
+```
+
+If the file transfer is blocked, then change ownership of directory to sftp_user group
+```
+ls -l ## check ownership of directories
+sudo chown -R sftp_user <dir_name>
+```
+
 
 ### 6. Create SSH Private Key for Github Actions Secret
 
@@ -262,14 +276,14 @@ jobs:
           node-version: 20
 
       - name: Build
-        run: yarn install && yarn build
+        run: cd <project_dir> && npm install && npm run build
 
       - name: Create .env file
         env:
           ENV_1: ${{ secrets.ENV_1 }}
           ENV_2: ${{ secrets.ENV_2 }}
         run: |
-          touch .env
+          cd <project_dir> && touch .env
           echo "NODE_ENV=production" >> .env
           echo "PORT=<YOUR_PORT>" >> .env
           echo "ENV_1=$ENV_1" >> .env
@@ -279,7 +293,7 @@ jobs:
 
       - name: Prepare zip file
         run: |
-          cd server
+          cd <project_dir>
           zip -r new_deployment.zip . -x ".git/*" ".github/*" "node_modules/*" "src/*"
           mkdir deployments
           mv new_deployment.zip deployments/new_deployment.zip
@@ -292,7 +306,7 @@ jobs:
           username: ${{ secrets.FTP_USERNAME }}
           server: ${{ secrets.FTP_HOST }}
           port: ${{ secrets.FTP_PORT }}
-          local_path: ./deployments/*
+          local_path: ./<project_dir>/deployments/*
           remote_path: deployments/your_domain
           sftp_only: true
           password: ${{ secrets.FTP_PASSWORD }}
@@ -309,13 +323,12 @@ jobs:
             unzip new_deployment.zip -d new_deployment
             rm new_deployment.zip
             cd ../..
-            rsync -av deployments/your_domain/new_deployment/* your_domain/
+            rsync -av deployments/your_domain/new_deployment/ your_domain/
             rm -rf deployments/your_domain/new_deployment
             cd your_domain
-            pm2 stop your_domain
-            yarn install --production --immutable --immutable-cache --check-cache
-            yarn migration:run
-            pm2 start pm2.config.js
+            npm install --omit=dev  ## yarn install --production --immutable --immutable-cache --check-cache
+            ## prestart scripts eg. npm run migration
+            pm2 reload pm2.config.js  ## zero downtime service update
             pm2 save
             pm2 startup ubuntu
 
