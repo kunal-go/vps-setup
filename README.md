@@ -206,6 +206,14 @@ module.exports = {
 };
 ```
 
+Create deployment space for uploading files
+```
+cd /home/sftp_user/
+mkdir deployments
+cd deployments
+mkdir your_domain
+```
+
 
 ### 6. Github Action Script
 
