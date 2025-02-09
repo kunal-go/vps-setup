@@ -1,16 +1,16 @@
 # VPS Setup for Ubuntu Server
 
-### 1. Installing Node.JS and clone the project source code
+### 1. Installing Node.JS (v20) and PM2
 
 Install Node.JS and NPM
 ```
-curl -sL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt install nodejs
 ```
 
 Verify Node.JS installation
 ```
-node --version
+node -v
 ```
 
 Install PM2 package globally
@@ -18,12 +18,7 @@ Install PM2 package globally
 npm install -g pm2
 ```
 
-Clone project from git
-```
-git clone <git_repo_url>
-```
-
-### 2. Setup PostgreSQL database
+### 2. Setup Postgres and create database
 
 Install PostgreSQL service
 ```
@@ -48,48 +43,18 @@ You can run the following SQL command at the psql prompt to configure the passwo
 ALTER USER postgres with encrypted password 'your_password';
 ```
 
-### 3. Build and serve the service
-
-Install project dependencies
+Create database
 ```
-npm install
+CREATE DATABASE your_database_name;
 ```
 
-Create server.config.js at the root of the project folder.
+Use exit command to go back to terminal
 ```
-module.exports = {
-  apps: [
-    {
-      name: 'My Awesome App',
-      script: './dist/main.js',
-      instances: 0,
-      exec_mode: 'cluster',
-      watch: false
-    }
-  ]
-};
-```
-
-Set all the environment variables in .env file.
-Build the project before starting service (for Nest.JS)
-```
-npm run build
-npm run migration:run
-```
-
-Start the service with PM2
-```
-pm2 start server.config.js
-```
-
-Save PM2 process for when a machine wasrestart, PM2 can running the same configuration
-```
-pm2 save
-pm2 startup ubuntu
+exit
 ```
 
 
-### 4. Setup HTTP server and reverse proxy
+### 3. Setup HTTP server and reverse proxy
 
 Install Nginx
 ```
@@ -132,19 +97,32 @@ Open server's default config file
 nano /etc/nginx/sites-available/default
 ```
 
+Create reverse proxy config file for nginx
+```
+cd /etc/nginx/sites-available
+touch <your_domain>
+nano <your_domain>
+```
+
 Add the following to the location part of the server block
 ```
 server {
-    server_name yourdomain.com www.yourdomain.com;
+    server_name <your_domain>;
 
     location / {
-        proxy_pass http://localhost:8001; #whatever port your app runs on
+        proxy_pass http://localhost:<PORT>;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
     }
+}
+```
+
+Enable this configuration file by creating a link from it to the sites-enabled directory that Nginx reads at startup
+```
+sudo ln -s /etc/nginx/sites-available/your_domain /etc/nginx/sites-enabled/
 ```
 
 Check and validate Nginx config syntax
@@ -158,7 +136,7 @@ sudo nginx -s reload
 ```
 
 
-### 5. Add SSL with LetsEncrypt
+### 4. Add SSL with LetsEncrypt
 
 Install certbot
 ```
@@ -171,4 +149,73 @@ sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
 Only valid for 90 days, test the renewal process with
 ```
 certbot renew --dry-run
+```
+
+
+### 5. Setup SFTP
+
+Create SFTP group
+```
+sudo addgroup sftp
+```
+
+Create new sftp user
+```
+sudo useradd -m sftp_user -g sftp
+```
+
+Set the password for the newly created sftp user
+```
+sudo passwd sftp_user
+```
+
+Restrict Access to the User's Home Directory
+```
+sudo chmod 700 /home/sftp_user/
+```
+
+Login through the SFTP using command line
+```
+sftp sftp_user@127.0.0.1
+```
+
+
+### 5. Setup project directory
+
+Create project directory in sftp space
+```
+cd /home/sftp_user/
+mkdir your_domain
+cd your_domain
+touch pm2.config.js
+nano pm2.config.js
+```
+
+Configure pm2.config.js that will be used by PM2
+```
+module.exports = {
+  apps: [
+    {
+      name: 'Project Name',
+      script: './dist/main.js',
+      instances: 2,
+      exec_mode: 'cluster',
+      watch: false
+    }
+  ]
+};
+```
+
+
+### 6. Github Action Script
+
+Start the service with PM2
+```
+pm2 start pm2.config.js
+```
+
+Save PM2 process for when a machine was restart, PM2 can running the same configuration
+```
+pm2 save
+pm2 startup ubuntu
 ```
